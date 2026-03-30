@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>教學遊戲平台</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <div class="container">
+    <h1>教學遊戲平台</h1>
+    <div class="card">
+      <h2>👩‍🏫 老師入口</h2>
+      <label>建立房間（題數）
+        <input id="roomTotal" type="number" min="5" max="30" value="15"/>
+      </label>
+      <button id="btnCreate">建立房間</button>
+      <p id="roomCode"></p>
+      <hr/>
+      <label>房間代碼
+        <input id="tRoom" placeholder="輸入房間代碼"/>
+      </label>
+      <button id="btnWatch">開始監看</button>
+      <ul id="board" class="board"></ul>
+    </div>
+
+    <div class="card">
+      <h2>🧒 學生入口</h2>
+      <label>房間代碼
+        <input id="sRoom" placeholder="輸入房間代碼"/>
+      </label>
+      <label>名字
+        <input id="sName" placeholder="輸入你的名字"/>
+      </label>
+      <button id="btnJoin">加入</button>
+      <p id="joinMsg"></p>
+      <hr/>
+      <div id="qbox" class="hidden">
+        <p id="qtext" class="big"></p>
+        <label>商 <input id="ansQ" type="number"/></label>
+        <label>餘 <input id="ansR" type="number"/></label>
+        <button id="btnSubmit">送出</button>
+        <p id="ansMsg"></p>
+      </div>
+    </div>
+  </div>
+  <script>
+  const API = (window.API_BASE || '').replace(/\/$/,'') || 'REPLACE_ME_API';
+  const $ = sel => document.querySelector(sel);
+  const sleep = ms => new Promise(r=>setTimeout(r, ms));
+
+  // 老師
+  $('#btnCreate').onclick = async () => {
+    const total = parseInt($('#roomTotal').value)||15;
+    const r = await fetch(API+'/api/rooms', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ total })}).then(r=>r.json());
+    $('#roomCode').textContent = '房間代碼：'+ r.roomCode;
+    $('#tRoom').value = r.roomCode;
+  };
+  $('#btnWatch').onclick = async () => {
+    const code = ($('#tRoom').value||'').toUpperCase(); if(!code) return;
+    while(true){
+      const r = await fetch(API+`/api/leaderboard?roomCode=${code}`).then(r=> r.ok ? r.json(): null).catch(()=>null);
+      if(r) {
+        $('#board').innerHTML = r.leaderboard.map(i=>`<li>#${i.rank} ${i.name} — ${i.score} 分（✅${i.correct}/❌${i.wrong}）`).join('');
+      }
+      await sleep(1500);
+    }
+  };
+
+  // 學生
+  let questions = [];
+  let startTs = 0;
+  $('#btnJoin').onclick = async () => {
+    const roomCode = ($('#sRoom').value||'').toUpperCase();
+    const name = $('#sName').value||''; if(!roomCode||!name) return;
+    const j = await fetch(API+'/api/join', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ roomCode, name })}).then(r=>r.json());
+    if(j.error){ $('#joinMsg').textContent = j.error; return; }
+    $('#joinMsg').textContent = '已加入！請作答';
+    const qs = await fetch(API+`/api/questions?roomCode=${roomCode}`).then(r=>r.json());
+    questions = qs.questions;
+    $('#qbox').classList.remove('hidden');
+    ask(roomCode, name, 0);
+  };
+
+  async function ask(roomCode, name, idx){
+    const q = questions[idx]; if(!q){ $('#qtext').textContent = '本輪結束'; return; }
+    $('#qtext').textContent = `${idx+1}/${questions.length}：${q.dividend} ÷ ${q.divisor} = ？ 餘 ？`;
+    $('#ansQ').value = ''; $('#ansR').value = '';
+    startTs = performance.now();
+    $('#btnSubmit').onclick = async () => {
+      const elapsedMs = performance.now()-startTs;
+      const body = { roomCode, name, qIndex: idx, quotient: Number($('#ansQ').value||0), remainder: Number($('#ansR').value||0), elapsedMs };
+      const r = await fetch(API+'/api/submit', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(r=>r.json());
+      $('#ansMsg').textContent = (r.correct? '✅ 答對 +'+r.points+' 分' : '❌ 答錯 '+r.points+' 分') + `（正解：${r.answer.quotient} 餘 ${r.answer.remainder}）`;
+      await sleep(1200);
+      ask(roomCode, name, idx+1);
+    };
+  }
+  </script>
+</body>
+</html>
