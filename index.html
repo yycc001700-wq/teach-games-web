@@ -11,6 +11,13 @@
     <h1>教學遊戲平台</h1>
     <div class="card">
       <h2>👩‍🏫 老師入口</h2>
+      <label>選擇遊戲類型
+        <select id="gameType">
+          <option value="division">除法大戰</option>
+          <option value="multiplication">乘法快跑</option>
+          <option value="addition">加法接力</option>
+        </select>
+      </label>
       <label>建立房間（題數）
         <input id="roomTotal" type="number" min="5" max="30" value="15"/>
       </label>
@@ -37,8 +44,13 @@
       <hr/>
       <div id="qbox" class="hidden">
         <p id="qtext" class="big"></p>
-        <label>商 <input id="ansQ" type="number"/></label>
-        <label>餘 <input id="ansR" type="number"/></label>
+        <div id="divInputs" class="hidden">
+          <label>商 <input id="ansQ" type="number"/></label>
+          <label>餘 <input id="ansR" type="number"/></label>
+        </div>
+        <div id="simpleInputs" class="hidden">
+          <label>答案 <input id="ansVal" type="number"/></label>
+        </div>
         <button id="btnSubmit">送出</button>
         <p id="ansMsg"></p>
       </div>
@@ -52,7 +64,8 @@
   // 老師
   $('#btnCreate').onclick = async () => {
     const total = parseInt($('#roomTotal').value)||15;
-    const r = await fetch(API+'/api/rooms', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ total })}).then(r=>r.json());
+    const type = $('#gameType').value;
+    const r = await fetch(API+'/api/rooms', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ total, type })}).then(r=>r.json());
     $('#roomCode').textContent = '房間代碼：'+ r.roomCode;
     $('#tRoom').value = r.roomCode;
   };
@@ -69,6 +82,7 @@
 
   // 學生
   let questions = [];
+  let roomType = 'division';
   let startTs = 0;
   $('#btnJoin').onclick = async () => {
     const roomCode = ($('#sRoom').value||'').toUpperCase();
@@ -76,22 +90,39 @@
     const j = await fetch(API+'/api/join', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ roomCode, name })}).then(r=>r.json());
     if(j.error){ $('#joinMsg').textContent = j.error; return; }
     $('#joinMsg').textContent = '已加入！請作答';
+    roomType = j.type;
     const qs = await fetch(API+`/api/questions?roomCode=${roomCode}`).then(r=>r.json());
     questions = qs.questions;
     $('#qbox').classList.remove('hidden');
+    if(roomType === 'division') {
+      $('#divInputs').classList.remove('hidden');
+      $('#simpleInputs').classList.add('hidden');
+    } else {
+      $('#divInputs').classList.add('hidden');
+      $('#simpleInputs').classList.remove('hidden');
+    }
     ask(roomCode, name, 0);
   };
 
   async function ask(roomCode, name, idx){
     const q = questions[idx]; if(!q){ $('#qtext').textContent = '本輪結束'; return; }
-    $('#qtext').textContent = `${idx+1}/${questions.length}：${q.dividend} ÷ ${q.divisor} = ？ 餘 ？`;
-    $('#ansQ').value = ''; $('#ansR').value = '';
+    $('#qtext').textContent = `${idx+1}/${questions.length}：${q.text}`;
+    $('#ansQ').value = ''; $('#ansR').value = ''; $('#ansVal').value = '';
     startTs = performance.now();
     $('#btnSubmit').onclick = async () => {
       const elapsedMs = performance.now()-startTs;
-      const body = { roomCode, name, qIndex: idx, quotient: Number($('#ansQ').value||0), remainder: Number($('#ansR').value||0), elapsedMs };
+      const body = { roomCode, name, qIndex: idx, elapsedMs };
+      if(roomType === 'division') {
+        body.quotient = Number($('#ansQ').value||0);
+        body.remainder = Number($('#ansR').value||0);
+      } else {
+        body.answer = Number($('#ansVal').value||0);
+      }
       const r = await fetch(API+'/api/submit', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(r=>r.json());
-      $('#ansMsg').textContent = (r.correct? '✅ 答對 +'+r.points+' 分' : '❌ 答錯 '+r.points+' 分') + `（正解：${r.answer.quotient} 餘 ${r.answer.remainder}）`;
+      let resText = r.correct? '✅ 答對 +'+r.points+' 分' : '❌ 答錯 '+r.points+' 分';
+      const ans = r.answer;
+      resText += '（正解：' + (roomType==='division'? `${ans.quotient} 餘 ${ans.remainder}` : ans.answer) + '）';
+      $('#ansMsg').textContent = resText;
       await sleep(1200);
       ask(roomCode, name, idx+1);
     };
